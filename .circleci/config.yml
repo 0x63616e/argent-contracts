@@ -1,141 +1,30 @@
-version: 2
+# Use the latest 2.1 version of CircleCI pipeline process engine.
+# See: https://circleci.com/docs/2.0/configuration-reference
+version: 2.1
 
-job_common: &job_common
-  docker:
-    - image: circleci/node:10.21-stretch
-      auth:
-          username: argentcircleci
-          password: $DOCKERHUB_PASSWORD
-  working_directory: ~/argent-contracts
-job_python: &job_python
-  docker:
-    - image: circleci/python:3.8.0b1-stretch-node
-      auth:
-        username: argentcircleci
-        password: $DOCKERHUB_PASSWORD
-  working_directory: ~/argent-contracts
-step_save_cache: &step_save_cache
-  save_cache:
-    paths:
-      - ~/.cache/package-lock
-    key: node-modules-{{ checksum "package-lock.json" }}
-step_restore_cache: &step_restore_cache
-  restore_cache:
-    keys:
-      - node-modules-{{ checksum "package-lock.json" }}
-step_setup_global_packages: &step_setup_global_packages
-  run:
-    name: "Set up global packages"
-    command: |
-      npm install
-step_setup_slither: &step_setup_slither
-  run:
-    name: "Setup slither analyser https://github.com/crytic/slither"
-    command: |
-      sudo pip3 install slither-analyzer
-      sudo apt-get install jq
-step_setup_solc_select: &step_setup_solc_select
-  run:
-    name: "Setup solc-select"
-    command: |
-      sudo pip3 install solc-select
-      solc-select install 0.5.4
-      solc-select install 0.8.3
+# Orbs are reusable packages of CircleCI configuration that you may share across projects, enabling you to create encapsulated, parameterized commands, jobs, and executors that can be used across multiple projects.
+# See: https://circleci.com/docs/2.0/orb-intro/
+orbs:
+  ruby: circleci/ruby@0.1.2
+
+# Define a job to be invoked later in a workflow.
+# See: https://circleci.com/docs/2.0/configuration-reference/#jobs
 jobs:
-  unit-test:
-    <<: *job_common
+  build:
+    docker:
+      - image: circleci/ruby:2.6.3-stretch-node
+    executor: ruby/default
     steps:
       - checkout
-      - <<: *step_restore_cache
-      - <<: *step_setup_global_packages
       - run:
-          name: "Lint JavaScript"
-          command: npm run lint:js
-      - run:
-          name: "Lint Solidity contracts"
-          command: npm run lint:contracts
-      - run:
-          name: "Compiling external library contracts"
-          command: npm run compile:lib
-      - run:
-          name: "Compiling contracts"
-          command: npm run compile
-      - run:
-          name: "Compiling test contracts"
-          command: npm run compile:test
-      - run:
-          name: "Provision lib artefacts"
-          command: npm run provision:lib:artefacts
-      - run:
-          name: "Test deployment scripts"
-          command: npm run ganache >/dev/null 2>&1 & npm run test:deployment
-          no_output_timeout: 60m
-      - run:
-          name: "Running unit tests"
-          command: npm run ganache >/dev/null 2>&1 & npm run test
-      # Save test artifacts
-      - store_artifacts:
-          path: gas-usage-report.log
-          destination: reports/gas-usage-report.log
-      - run: npx codechecks
-      - run:
-          name: "Running integration tests"
-          command: npm run mainnet-fork >/dev/null 2>&1 & npm run test:integration
-      - run:
-          name: "Running coverage"
-          command: |
-            npm run compile
-            npm run compile:test
-            npm run test:coverage
-      - <<: *step_save_cache
-      # Save coverage artifacts
-      - store_artifacts:
-          path: coverage
-          destination: coverage-artifacts
-  security-test:
-    <<: *job_python
-    steps:
-      - checkout
-      - <<: *step_restore_cache
-      - <<: *step_setup_global_packages
-      - <<: *step_setup_slither
-      - <<: *step_setup_solc_select
-      - run:
-          name: "Run slither on infrastructure contracts based on solc 0.5"
-          command:  |
-            export PATH=/home/circleci/.solc-select:$PATH
-            npm run security:slither:infrastructure_0.5
-          when: always
-      - run:
-          name: "Run slither on infrastructure contracts based on solc 0.8"
-          command:  |
-            export PATH=/home/circleci/.solc-select:$PATH
-            npm run security:slither:infrastructure
-          when: always
-      - run:
-          name: "Run slither on wallet modules contracts"
-          command:  |
-            export PATH=/home/circleci/.solc-select:$PATH
-            npm run security:slither:modules
-          when: always
-      - run:
-          name: "Run slither on wallet contracts"
-          command:  |
-            export PATH=/home/circleci/.solc-select:$PATH
-            npm run security:slither:wallet
-          when: always
+          name: Which bundler?
+          command: bundle -v
+      - ruby/bundle-install
+
+# Invoke jobs via workflows
+# See: https://circleci.com/docs/2.0/configuration-reference/#workflows
 workflows:
-  version: 2
-  commit:
+  sample: # This is the name of the workflow, feel free to change it to better match your workflow.
+    # Inside the workflow, you define the jobs you want to run.
     jobs:
-      - unit-test
-  nightly:
-    triggers:
-      - schedule:
-          cron: "0 1 * * *" # 1am UTC
-          filters:
-            branches:
-              only:
-                - develop
-    jobs:
-      - security-test
+      - build
